@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         腾讯文档收集表智能填充助手 (WinUI 3 深色重构版)
+// @name         腾讯文档收集表智能填充助手 (WinUI 3 深色可拖拽版)
 // @namespace    http://tampermonkey.net/
-// @version      3.1
-// @description  深色毛玻璃风格，复制成功按钮动画反馈，无弹窗干扰
+// @version      3.2
+// @description  深色毛玻璃可拖拽面板，复制成功按钮动画反馈
 // @author       Assistant (Refactored)
 // @match        *://docs.qq.com/form/page/*
 // @match        *://docs.qq.com/form/fill/*
@@ -11,7 +11,7 @@
 // @grant        GM_setClipboard
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
     // ------------------------------ 配置常量 ------------------------------
@@ -28,7 +28,7 @@
     // ------------------------------ 工具函数 ------------------------------
     class Utils {
         static chineseToNumber(chinese) {
-            const map = { '零':0,'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10 };
+            const map = { '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 };
             if (!chinese) return 0;
             if (chinese === '十') return 10;
             if (chinese.startsWith('十')) return 10 + (map[chinese[1]] || 0);
@@ -128,18 +128,18 @@
                 return c;
             };
 
-            const c1 = add("程序设计实践", ["Easyx","easyx","EasyX","程设","程设实践","程序设计实践"], "焦贤沛", "计算机与人工智能学院");
-            const c2 = add("写作与沟通I", ["语文","写作","沟通","写作与沟通"], "王柳芳", "社会与人文学院");
-            const c3 = add("中国近现代史纲要", ["近代史","近现代史","史纲","纲要"], "吴通福", "马克思主义学院");
-            const c4 = add("高等数学II", ["高数II","高数2","高等数学二","高数二","高数","高等数学"], "俞丽兰", "信息管理与数学学院");
-            const c5 = add("大学英语II", ["大英","英语","大英II","英语II","大学英语"], "史希平", "外国语学院");
-            const c6 = add("体育2", ["体育","体育二"], "彭永善", "体育学院");
-            const c7 = add("面向对象程序设计(双语)", ["Java","JAVA","java","OOP","面向对象","面向对象程序设计"], "夏雪", "计算机与人工智能学院");
-            const c8 = add("毛泽东思想和中国特色社会主义理论体系概论", ["毛概"], "康立芳", "马克思主义学院");
-            const c9 = add("形势与政策II", ["形策","形势与政策"], "谢尔艾力.库尔班", "马克思主义学院");
-            const c10 = add("大学物理", ["大物","物理"], "余泉茂", "软件与物联网工程学院");
-            const c11 = add("习近平新时代中国特色社会主义思想概论", ["习概","新思想概论"], "徐腊梅", "马克思主义学院");
-            const c12 = add("数字逻辑与数字系统", ["数逻","数字逻辑","数电"], "包晗秋", "计算机与人工智能学院");
+            const c1 = add("程序设计实践", ["Easyx", "easyx", "EasyX", "程设", "程设实践", "程序设计实践"], "焦贤沛", "计算机与人工智能学院");
+            const c2 = add("写作与沟通I", ["语文", "写作", "沟通", "写沟", "写作与沟通"], "王柳芳", "社会与人文学院");
+            const c3 = add("中国近现代史纲要", ["近代史", "近现代史", "史纲", "纲要"], "吴通福", "马克思主义学院");
+            const c4 = add("高等数学II", ["高数II", "高数2", "高等数学二", "高数二", "高数", "高等数学"], "俞丽兰", "信息管理与数学学院");
+            const c5 = add("大学英语II", ["大英", "英语", "大英II", "英语II", "大学英语"], "史希平", "外国语学院");
+            const c6 = add("体育2", ["体育", "体育二"], "彭永善", "体育学院");
+            const c7 = add("面向对象程序设计(双语)", ["Java", "JAVA", "java", "OOP", "面向对象", "面向对象程序设计"], "夏雪", "计算机与人工智能学院");
+            const c8 = add("毛泽东思想和中国特色社会主义理论体系概论", ["毛概", "毛中特"], "康立芳", "马克思主义学院");
+            const c9 = add("形势与政策II", ["形策", "形势与政策"], "谢尔艾力.库尔班", "马克思主义学院");
+            const c10 = add("大学物理", ["大物", "物理"], "余泉茂", "软件与物联网工程学院");
+            const c11 = add("习近平新时代中国特色社会主义思想概论", ["习概", "新思想概论"], "徐腊梅", "马克思主义学院");
+            const c12 = add("数字逻辑与数字系统", ["数逻", "数字逻辑", "数电"], "包晗秋", "计算机与人工智能学院");
 
             c1.addSession("全周", "3-12", "图文楼M103", 1);
             c2.addSession("全周", "1-34", "3310", 1);
@@ -251,22 +251,27 @@
         }
     }
 
-    // ------------------------------ 深色毛玻璃 WinUI 面板 ------------------------------
-    class WinUIPanel {
+    // ------------------------------ 深色毛玻璃可拖拽面板 ------------------------------
+    class DraggableWinUIPanel {
         constructor(onFill) {
             this.onFill = onFill;
             this.panel = null;
             this.btn = null;
             this.originalBtnText = '✨ 填写并复制';
             this.timeoutId = null;
+            this.isDragging = false;
+            this.startX = 0;
+            this.startY = 0;
+            this.initialLeft = 0;
+            this.initialTop = 0;
         }
 
         create() {
             this.panel = document.createElement('div');
-            this.panel.id = 'winui-fill-panel';
+            this.panel.id = 'winui-draggable-panel';
             this.panel.innerHTML = `
                 <div class="winui-panel">
-                    <div class="winui-title">📋 课程信息填充</div>
+                    <div class="winui-title" id="drag-handle">📋 课程信息填充</div>
                     <div class="winui-content">
                         <div class="winui-input-field">
                             <label>课程描述 <span class="optional">含节次</span></label>
@@ -283,6 +288,8 @@
             document.body.appendChild(this.panel);
             this.btn = document.getElementById('fillBtn');
             this._injectStyles();
+            this._restorePosition();
+            this._setupDragging();
             this._bindEvents();
         }
 
@@ -329,10 +336,8 @@
                     }
                 }
 
-                #winui-fill-panel {
+                #winui-draggable-panel {
                     position: fixed;
-                    top: 100px;
-                    right: 20px;
                     width: 340px;
                     z-index: 10000;
                     font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
@@ -356,6 +361,11 @@
                     padding: 16px 20px 8px;
                     color: var(--text-primary);
                     letter-spacing: -0.01em;
+                    cursor: move;
+                    user-select: none;
+                }
+                .winui-title:active {
+                    cursor: grabbing;
                 }
                 .winui-content {
                     padding: 8px 20px 20px;
@@ -429,21 +439,87 @@
                     color: white !important;
                     transition: background 0.15s;
                 }
-                .winui-button .btn-text {
-                    display: inline-block;
-                    transition: transform 0.2s;
-                }
-                /* 响应式 */
+                /* 响应式：小屏幕底部固定，禁用拖拽偏移 */
                 @media (max-width: 700px) {
-                    #winui-fill-panel {
-                        top: auto;
-                        bottom: 10px;
-                        right: 10px;
-                        left: 10px;
-                        width: auto;
+                    #winui-draggable-panel {
+                        width: calc(100% - 20px) !important;
+                        left: 10px !important;
+                        right: 10px !important;
+                        top: auto !important;
+                        bottom: 10px !important;
+                    }
+                    .winui-title {
+                        cursor: default;
                     }
                 }
             `);
+        }
+
+        _restorePosition() {
+            const savedLeft = localStorage.getItem('winuiPanelLeft');
+            const savedTop = localStorage.getItem('winuiPanelTop');
+            if (savedLeft && savedTop) {
+                this.panel.style.left = savedLeft + 'px';
+                this.panel.style.top = savedTop + 'px';
+                this.panel.style.right = 'auto';
+                this.panel.style.bottom = 'auto';
+            } else {
+                this.panel.style.top = '100px';
+                this.panel.style.right = '20px';
+                this.panel.style.left = 'auto';
+                this.panel.style.bottom = 'auto';
+            }
+        }
+
+        _setupDragging() {
+            const header = document.getElementById('drag-handle');
+            if (!header) return;
+
+            header.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                // 移动端不启用拖拽
+                if (window.innerWidth <= 700) return;
+
+                this.isDragging = true;
+                this.startX = e.clientX;
+                this.startY = e.clientY;
+                const rect = this.panel.getBoundingClientRect();
+                this.initialLeft = rect.left;
+                this.initialTop = rect.top;
+                this.panel.style.right = 'auto';
+                this.panel.style.left = this.initialLeft + 'px';
+                this.panel.style.top = this.initialTop + 'px';
+                e.preventDefault();
+            });
+
+            const onMouseMove = (e) => {
+                if (!this.isDragging) return;
+                const dx = e.clientX - this.startX;
+                const dy = e.clientY - this.startY;
+                let newLeft = this.initialLeft + dx;
+                let newTop = this.initialTop + dy;
+                const maxX = window.innerWidth - this.panel.offsetWidth;
+                const maxY = window.innerHeight - this.panel.offsetHeight;
+                newLeft = Math.min(Math.max(0, newLeft), maxX);
+                newTop = Math.min(Math.max(0, newTop), maxY);
+                this.panel.style.left = newLeft + 'px';
+                this.panel.style.top = newTop + 'px';
+            };
+
+            const onMouseUp = () => {
+                if (this.isDragging) {
+                    this.isDragging = false;
+                    const left = parseInt(this.panel.style.left, 10);
+                    const top = parseInt(this.panel.style.top, 10);
+                    if (!isNaN(left) && !isNaN(top)) {
+                        localStorage.setItem('winuiPanelLeft', left);
+                        localStorage.setItem('winuiPanelTop', top);
+                    }
+                }
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
         }
 
         _bindEvents() {
@@ -456,7 +532,6 @@
                     return;
                 }
                 const fb = fbInput.value;
-                // 禁用按钮避免重复点击
                 this.btn.disabled = true;
                 try {
                     await this.onFill(desc, fb);
@@ -466,22 +541,17 @@
             });
         }
 
-        // 按钮成功动画（由外部调用）
         showSuccessOnButton() {
             if (this.timeoutId) clearTimeout(this.timeoutId);
-            const btn = this.btn;
-            const originalContent = btn.innerHTML;
-            btn.classList.add('success');
-            btn.innerHTML = `<span style="display:flex;align-items:center;justify-content:center;gap:6px;">✅ 已复制到剪贴板</span>`;
-
+            this.btn.classList.add('success');
+            this.btn.innerHTML = `<span style="display:flex;align-items:center;justify-content:center;gap:6px;">✅ 已复制到剪贴板</span>`;
             this.timeoutId = setTimeout(() => {
-                btn.classList.remove('success');
-                btn.innerHTML = this.originalBtnText;
+                this.btn.classList.remove('success');
+                this.btn.innerHTML = this.originalBtnText;
                 this.timeoutId = null;
             }, 1800);
         }
 
-        // 错误提示仍用toast（简洁版）
         showErrorToast(message) {
             const toast = document.createElement('div');
             toast.textContent = message;
@@ -517,7 +587,7 @@
             this.repo = new CourseRepository();
             this.parser = new CourseParser(this.repo);
             this.filler = new FormFiller();
-            this.panel = new WinUIPanel(this._handleFill.bind(this));
+            this.panel = new DraggableWinUIPanel(this._handleFill.bind(this));
             this.init();
         }
 
