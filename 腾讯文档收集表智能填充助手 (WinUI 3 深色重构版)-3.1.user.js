@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         腾讯文档收集表智能填充助手 (WinUI 3 深色可拖拽版)
 // @namespace    http://tampermonkey.net/
-// @version      3.8
-// @description  深色毛玻璃可拖拽面板，macOS红绿灯+强回弹动画，最大化75%视口 (修复高度与关闭动画)
+// @version      3.9
+// @description  深色毛玻璃可拖拽面板，macOS红绿灯+强回弹动画，最大化75%视口（修复首次最大化高度突变）
 // @author       Assistant (Refactored)
 // @match        *://docs.qq.com/form/page/*
 // @match        *://docs.qq.com/form/fill/*
@@ -27,7 +27,6 @@
 
     // 强回弹缓动函数
     const EASING_BACK = 'cubic-bezier(0.68, -0.55, 0.265, 1.55)';
-    // 动画时长 600ms
     const ANIM_DURATION = 600;
 
     // ------------------------------ 工具函数 ------------------------------
@@ -256,7 +255,7 @@
         }
     }
 
-    // ------------------------------ 深色毛玻璃可拖拽面板（动画优化） ------------------------------
+    // ------------------------------ 深色毛玻璃可拖拽面板 ------------------------------
     class DraggableWinUIPanel {
         constructor(onFill) {
             this.onFill = onFill;
@@ -310,6 +309,12 @@
             this._setupWindowControls();
             this._bindEvents();
             this._createMiniButton();
+
+            // 确保初始 normalStyle.height 为准确的像素值
+            requestAnimationFrame(() => {
+                const rect = this.panel.getBoundingClientRect();
+                this.normalStyle.height = rect.height;
+            });
         }
 
         _closeIconSVG() {
@@ -371,7 +376,6 @@
                     pointer-events: none;
                     will-change: transform, opacity, width, left, top;
                 }
-
                 .winui-panel {
                     background: var(--panel-bg);
                     border-radius: 12px;
@@ -385,19 +389,16 @@
                     height: 100%;
                     min-height: 0;
                 }
-
                 .winui-title-bar {
                     display: flex;
                     align-items: center;
                     padding: 13px;
                     flex-shrink: 0;
                 }
-
                 .window-controls {
                     display: flex;
                     gap: 4px;
                 }
-
                 .control {
                     width: 16px;
                     height: 16px;
@@ -408,9 +409,7 @@
                     cursor: pointer;
                     transition: filter 0.2s;
                 }
-
                 .control:hover { filter: brightness(0.9); }
-
                 .winui-title {
                     flex: 1;
                     font-size: 14px;
@@ -421,9 +420,7 @@
                     user-select: none;
                     text-align: center;
                 }
-
                 .title-spacer { width: 48px; }
-
                 .winui-content {
                     padding: 0 20px 20px;
                     flex: 1;
@@ -431,11 +428,9 @@
                     flex-direction: column;
                     min-height: 0;
                 }
-
                 .winui-input-field {
                     margin-bottom: 16px;
                 }
-
                 .winui-input-field label {
                     display: block;
                     font-size: 13px;
@@ -443,13 +438,14 @@
                     margin-bottom: 6px;
                     color: var(--text-primary);
                 }
-
                 .winui-input-field .optional {
                     font-weight: 400;
                     color: var(--text-secondary);
                     margin-left: 6px;
                 }
-
+                #feedbackInput { 
+                    margin-bottom: 16px;
+                }
                 .winui-input-field input,
                 .winui-input-field textarea {
                     width: 100%;
@@ -465,28 +461,23 @@
                     font-family: inherit;
                     resize: vertical;
                 }
-
                 .winui-input-field input:focus,
                 .winui-input-field textarea:focus {
                     border-color: var(--input-focus-border);
                     box-shadow: 0 0 0 3px var(--input-focus-shadow);
                     background: var(--input-bg);
                 }
-
-                /* 让反馈内容所在的输入框组填满剩余高度 */
                 .winui-input-field:last-of-type {
                     flex: 1;
                     display: flex;
                     flex-direction: column;
                     margin-bottom: 0;
                 }
-
                 .winui-input-field:last-of-type textarea {
                     flex: 1;
                     resize: vertical;
                     min-height: 80px;
                 }
-
                 .winui-button {
                     width: 100%;
                     padding: 10px 16px;
@@ -495,26 +486,23 @@
                     font-weight: 500;
                     font-size: 14px;
                     cursor: pointer;
-                    transition: all 0.25s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+                    transition: all 0.25s ${EASING_BACK};
                     background: var(--button-bg);
                     color: var(--text-primary);
                     border: 1px solid var(--button-border);
                 }
-
                 .winui-button.accent {
                     background: var(--button-accent-bg);
                     border: none;
                     margin-top: auto;
                     flex-shrink: 0;
                 }
-
                 .winui-button.accent:hover { background: var(--button-accent-hover); }
                 .winui-button.accent:active { background: var(--button-accent-active); transform: scale(0.97); }
                 .winui-button.accent.success {
                     background: #0e7a4d !important;
                     color: white !important;
                 }
-
                 #winui-mini-button {
                     position: fixed;
                     bottom: 30px;
@@ -532,19 +520,16 @@
                     justify-content: center;
                     cursor: pointer;
                     z-index: 10001;
-                    transition: opacity 0.2s, transform 0.2s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+                    transition: opacity 0.2s, transform 0.2s ${EASING_BACK};
                     opacity: 0;
                     pointer-events: none;
                 }
-
                 #winui-mini-button.visible {
                     opacity: 1;
                     pointer-events: auto;
                 }
-
                 #winui-mini-button:hover { transform: scale(1.05); }
                 #winui-mini-button svg { width: 24px; height: 24px; fill: var(--text-primary); }
-
                 @media (max-width: 700px) {
                     #winui-draggable-panel {
                         width: calc(100% - 20px) !important;
@@ -572,6 +557,8 @@
                 this.panel.style.left = 'auto';
                 this.panel.style.bottom = 'auto';
             }
+            // 强制重排后获取准确的尺寸
+            this.panel.offsetHeight;
             const rect = this.panel.getBoundingClientRect();
             this.normalStyle.left = rect.left;
             this.normalStyle.top = rect.top;
@@ -617,15 +604,14 @@
                 if (this.isDragging) {
                     this.isDragging = false;
                     this.panel.style.transition = '';
-                    const left = parseInt(this.panel.style.left, 10);
-                    const top = parseInt(this.panel.style.top, 10);
-                    if (!isNaN(left) && !isNaN(top)) {
-                        localStorage.setItem('winuiPanelLeft', left);
-                        localStorage.setItem('winuiPanelTop', top);
-                        if (!this.isMaximized) {
-                            this.normalStyle.left = left;
-                            this.normalStyle.top = top;
-                        }
+                    const rect = this.panel.getBoundingClientRect();
+                    localStorage.setItem('winuiPanelLeft', rect.left);
+                    localStorage.setItem('winuiPanelTop', rect.top);
+                    if (!this.isMaximized) {
+                        this.normalStyle.left = rect.left;
+                        this.normalStyle.top = rect.top;
+                        this.normalStyle.width = rect.width;
+                        this.normalStyle.height = rect.height;
                     }
                 }
             };
@@ -645,12 +631,11 @@
             this.isAnimating = true;
             const panel = this.panel;
 
-            // 确保面板可见且无残留变换
             panel.style.visibility = 'visible';
             panel.style.transition = '';
             panel.style.transform = '';
             panel.style.opacity = '';
-            panel.offsetHeight; // 强制重绘
+            panel.offsetHeight;
 
             panel.style.pointerEvents = 'none';
             panel.style.transformOrigin = 'center center';
@@ -714,7 +699,7 @@
 
             setTimeout(() => {
                 this.panel.style.transition = '';
-                this.panel.style.transform = ''; // 清理变换，避免影响后续操作
+                this.panel.style.transform = '';
                 this.isAnimating = false;
             }, ANIM_DURATION);
         }
@@ -722,8 +707,16 @@
         _toggleMaximize() {
             if (this.isAnimating) return;
             const rect = this.panel.getBoundingClientRect();
+
+            // 修复首次最大化高度无动画的问题：如果面板 height 未显式设置或为 'auto'，先强制转为像素值
+            const computedHeight = getComputedStyle(this.panel).height;
+            if (!this.panel.style.height || computedHeight === 'auto') {
+                this.panel.style.height = rect.height + 'px';
+                this.panel.offsetHeight; // 强制重绘
+            }
+
             if (!this.isMaximized) {
-                // 保存正常状态
+                // 保存正常状态的尺寸和位置
                 this.normalStyle.width = rect.width;
                 this.normalStyle.height = rect.height;
                 this.normalStyle.left = rect.left;
@@ -751,8 +744,15 @@
                 this.panel.style.right = 'auto';
                 this.isMaximized = false;
             }
+
             setTimeout(() => {
                 this.panel.style.transition = '';
+                if (!this.isMaximized) {
+                    // 还原后不重置为 auto，而是保持固定高度，并更新 normalStyle
+                    const newRect = this.panel.getBoundingClientRect();
+                    this.normalStyle.width = newRect.width;
+                    this.normalStyle.height = newRect.height;
+                }
             }, ANIM_DURATION);
         }
 
