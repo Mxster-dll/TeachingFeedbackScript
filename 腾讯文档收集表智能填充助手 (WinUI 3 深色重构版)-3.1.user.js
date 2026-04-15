@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         腾讯文档收集表智能填充助手 (WinUI 3 深色可拖拽版)
 // @namespace    http://tampermonkey.net/
-// @version      3.2
-// @description  深色毛玻璃可拖拽面板，复制成功按钮动画反馈
+// @version      3.8
+// @description  深色毛玻璃可拖拽面板，macOS红绿灯+强回弹动画，最大化75%视口 (修复高度与关闭动画)
 // @author       Assistant (Refactored)
 // @match        *://docs.qq.com/form/page/*
 // @match        *://docs.qq.com/form/fill/*
@@ -24,6 +24,11 @@
         SEMESTER_START: new Date(2026, 2, 2),
         MAX_WEEK: 16
     };
+
+    // 强回弹缓动函数
+    const EASING_BACK = 'cubic-bezier(0.68, -0.55, 0.265, 1.55)';
+    // 动画时长 600ms
+    const ANIM_DURATION = 600;
 
     // ------------------------------ 工具函数 ------------------------------
     class Utils {
@@ -128,17 +133,17 @@
                 return c;
             };
 
-            const c1 = add("程序设计实践", ["Easyx", "easyx", "EasyX", "程设", "程设实践", "程序设计实践"], "焦贤沛", "计算机与人工智能学院");
+            const c1 = add("程序设计实践", ["easyx", "程设", "程设实践", "程序设计实践"], "焦贤沛", "计算机与人工智能学院");
             const c2 = add("写作与沟通I", ["语文", "写作", "沟通", "写沟", "写作与沟通"], "王柳芳", "社会与人文学院");
             const c3 = add("中国近现代史纲要", ["近代史", "近现代史", "史纲", "纲要"], "吴通福", "马克思主义学院");
             const c4 = add("高等数学II", ["高数II", "高数2", "高等数学二", "高数二", "高数", "高等数学"], "俞丽兰", "信息管理与数学学院");
             const c5 = add("大学英语II", ["大英", "英语", "大英II", "英语II", "大学英语"], "史希平", "外国语学院");
             const c6 = add("体育2", ["体育", "体育二"], "彭永善", "体育学院");
-            const c7 = add("面向对象程序设计(双语)", ["Java", "JAVA", "java", "OOP", "面向对象", "面向对象程序设计"], "夏雪", "计算机与人工智能学院");
+            const c7 = add("面向对象程序设计(双语)", ["java", "oop", "面向对象", "面向对象程序设计"], "夏雪", "计算机与人工智能学院");
             const c8 = add("毛泽东思想和中国特色社会主义理论体系概论", ["毛概", "毛中特", "毛泽东", "理论体系"], "康立芳", "马克思主义学院");
             const c9 = add("形势与政策II", ["形策", "形势与政策"], "谢尔艾力.库尔班", "马克思主义学院");
             const c10 = add("大学物理", ["大物", "物理"], "余泉茂", "软件与物联网工程学院");
-            const c11 = add("习近平新时代中国特色社会主义思想概论", ["习概", "新思想概论", "习近平"], "徐腊梅", "马克思主义学院");
+            const c11 = add("习近平新时代中国特色社会主义思想概论", ["习概", "新思想", "习近平"], "徐腊梅", "马克思主义学院");
             const c12 = add("数字逻辑与数字系统", ["数逻", "数字逻辑", "数电"], "包晗秋", "计算机与人工智能学院");
 
             c1.addSession("全周", "3-12", "图文楼M103", 1);
@@ -161,7 +166,7 @@
         findCourse(rawText) {
             const lower = rawText.toLowerCase();
             for (let course of this.courses.values()) {
-                if (course.aliases.some(alias => lower.includes(alias.toLowerCase()))) {
+                if (course.aliases.some(alias => alias.toLowerCase().includes(lower) || lower.includes(alias.toLowerCase()))) {
                     return course;
                 }
             }
@@ -251,7 +256,7 @@
         }
     }
 
-    // ------------------------------ 深色毛玻璃可拖拽面板 ------------------------------
+    // ------------------------------ 深色毛玻璃可拖拽面板（动画优化） ------------------------------
     class DraggableWinUIPanel {
         constructor(onFill) {
             this.onFill = onFill;
@@ -264,6 +269,10 @@
             this.startY = 0;
             this.initialLeft = 0;
             this.initialTop = 0;
+            this.isMaximized = false;
+            this.normalStyle = { width: 340, height: null, left: null, top: null, right: null, bottom: null };
+            this.miniButton = null;
+            this.isAnimating = false;
         }
 
         create() {
@@ -271,7 +280,15 @@
             this.panel.id = 'winui-draggable-panel';
             this.panel.innerHTML = `
                 <div class="winui-panel">
-                    <div class="winui-title" id="drag-handle">📋 课程信息填充</div>
+                    <div class="winui-title-bar">
+                        <div class="window-controls">
+                            <div class="control close" id="winui-close">${this._closeIconSVG()}</div>
+                            <div class="control minimize" id="winui-minimize">${this._minimizeIconSVG()}</div>
+                            <div class="control maximize" id="winui-maximize">${this._maximizeIconSVG()}</div>
+                        </div>
+                        <div class="winui-title" id="drag-handle">📋 课程信息填充</div>
+                        <div class="title-spacer"></div>
+                    </div>
                     <div class="winui-content">
                         <div class="winui-input-field">
                             <label>课程描述 <span class="optional">含节次</span></label>
@@ -290,18 +307,29 @@
             this._injectStyles();
             this._restorePosition();
             this._setupDragging();
+            this._setupWindowControls();
             this._bindEvents();
+            this._createMiniButton();
+        }
+
+        _closeIconSVG() {
+            return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6" cy="6" r="6" fill="#FF5F57" stroke="#E0443E" stroke-width="0.5"/></svg>`;
+        }
+        _minimizeIconSVG() {
+            return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6" cy="6" r="6" fill="#FFBD2E" stroke="#DFA123" stroke-width="0.5"/></svg>`;
+        }
+        _maximizeIconSVG() {
+            return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6" cy="6" r="6" fill="#28C840" stroke="#1BAC2C" stroke-width="0.5"/></svg>`;
         }
 
         _injectStyles() {
             GM_addStyle(`
-                /* 基础变量 - 浅色模式 */
                 :root {
-                    --panel-bg: rgba(255, 255, 255, 0.75);
-                    --panel-border: rgba(255, 255, 255, 0.3);
+                    --panel-bg: rgba(255, 255, 255, 0.5);
+                    --panel-border: rgba(255, 255, 255, 0.2);
                     --text-primary: #1f1f1f;
                     --text-secondary: #5c5c5c;
-                    --input-bg: rgba(255, 255, 255, 0.7);
+                    --input-bg: rgba(255, 255, 255, 0.4);
                     --input-border: rgba(0, 0, 0, 0.1);
                     --input-focus-border: #0078d4;
                     --input-focus-shadow: rgba(0, 120, 212, 0.3);
@@ -312,15 +340,13 @@
                     --button-accent-active: #005a9e;
                     --toast-bg-error: rgba(196, 43, 28, 0.9);
                 }
-
-                /* 深色模式覆盖 */
                 @media (prefers-color-scheme: dark) {
                     :root {
-                        --panel-bg: rgba(32, 32, 32, 0.7);
-                        --panel-border: rgba(255, 255, 255, 0.1);
+                        --panel-bg: rgba(32, 32, 32, 0.5);
+                        --panel-border: rgba(255, 255, 255, 0.08);
                         --text-primary: #ffffff;
                         --text-secondary: #c7c7c7;
-                        --input-bg: rgba(50, 50, 50, 0.7);
+                        --input-bg: rgba(50, 50, 50, 0.5);
                         --input-border: rgba(255, 255, 255, 0.1);
                         --input-focus-border: #60cdff;
                         --input-focus-shadow: rgba(96, 205, 255, 0.3);
@@ -331,48 +357,85 @@
                         --button-accent-active: #1e7aa8;
                         --toast-bg-error: rgba(220, 60, 60, 0.9);
                     }
-                    .winui-button.accent {
-                        color: #1a1a1a !important;
-                    }
+                    .winui-button.accent { color: #1a1a1a !important; }
                 }
 
                 #winui-draggable-panel {
                     position: fixed;
                     width: 340px;
+                    height: auto;
                     z-index: 10000;
+                    backdrop-filter: blur(20px) saturate(180%);
+                    -webkit-backdrop-filter: blur(20px) saturate(180%);
                     font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
                     pointer-events: none;
+                    will-change: transform, opacity, width, left, top;
                 }
+
                 .winui-panel {
                     background: var(--panel-bg);
-                    backdrop-filter: blur(25px) saturate(180%);
-                    -webkit-backdrop-filter: blur(25px) saturate(180%);
                     border-radius: 12px;
                     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 0 1px var(--panel-border) inset;
                     border: 1px solid rgba(255, 255, 255, 0.05);
                     overflow: hidden;
                     pointer-events: auto;
-                    transition: background 0.2s, box-shadow 0.3s;
                     color: var(--text-primary);
+                    display: flex;
+                    flex-direction: column;
+                    height: 100%;
+                    min-height: 0;
                 }
+
+                .winui-title-bar {
+                    display: flex;
+                    align-items: center;
+                    padding: 13px;
+                    flex-shrink: 0;
+                }
+
+                .window-controls {
+                    display: flex;
+                    gap: 4px;
+                }
+
+                .control {
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    transition: filter 0.2s;
+                }
+
+                .control:hover { filter: brightness(0.9); }
+
                 .winui-title {
-                    font-size: 16px;
+                    flex: 1;
+                    font-size: 14px;
                     font-weight: 600;
-                    padding: 16px 20px 8px;
                     color: var(--text-primary);
                     letter-spacing: -0.01em;
                     cursor: move;
                     user-select: none;
+                    text-align: center;
                 }
-                .winui-title:active {
-                    cursor: grabbing;
-                }
+
+                .title-spacer { width: 48px; }
+
                 .winui-content {
-                    padding: 8px 20px 20px;
+                    padding: 0 20px 20px;
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    min-height: 0;
                 }
+
                 .winui-input-field {
                     margin-bottom: 16px;
                 }
+
                 .winui-input-field label {
                     display: block;
                     font-size: 13px;
@@ -380,11 +443,13 @@
                     margin-bottom: 6px;
                     color: var(--text-primary);
                 }
+
                 .winui-input-field .optional {
                     font-weight: 400;
                     color: var(--text-secondary);
                     margin-left: 6px;
                 }
+
                 .winui-input-field input,
                 .winui-input-field textarea {
                     width: 100%;
@@ -400,12 +465,28 @@
                     font-family: inherit;
                     resize: vertical;
                 }
+
                 .winui-input-field input:focus,
                 .winui-input-field textarea:focus {
                     border-color: var(--input-focus-border);
                     box-shadow: 0 0 0 3px var(--input-focus-shadow);
                     background: var(--input-bg);
                 }
+
+                /* 让反馈内容所在的输入框组填满剩余高度 */
+                .winui-input-field:last-of-type {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    margin-bottom: 0;
+                }
+
+                .winui-input-field:last-of-type textarea {
+                    flex: 1;
+                    resize: vertical;
+                    min-height: 80px;
+                }
+
                 .winui-button {
                     width: 100%;
                     padding: 10px 16px;
@@ -414,32 +495,56 @@
                     font-weight: 500;
                     font-size: 14px;
                     cursor: pointer;
-                    transition: all 0.25s cubic-bezier(0.2, 0.9, 0.4, 1);
+                    transition: all 0.25s cubic-bezier(0.68, -0.55, 0.265, 1.55);
                     background: var(--button-bg);
                     color: var(--text-primary);
                     border: 1px solid var(--button-border);
-                    position: relative;
-                    overflow: hidden;
                 }
+
                 .winui-button.accent {
                     background: var(--button-accent-bg);
                     border: none;
-                    transform: scale(1);
+                    margin-top: auto;
+                    flex-shrink: 0;
                 }
-                .winui-button.accent:hover {
-                    background: var(--button-accent-hover);
-                }
-                .winui-button.accent:active {
-                    background: var(--button-accent-active);
-                    transform: scale(0.97);
-                }
-                /* 成功状态动画 */
+
+                .winui-button.accent:hover { background: var(--button-accent-hover); }
+                .winui-button.accent:active { background: var(--button-accent-active); transform: scale(0.97); }
                 .winui-button.accent.success {
                     background: #0e7a4d !important;
                     color: white !important;
-                    transition: background 0.15s;
                 }
-                /* 响应式：小屏幕底部固定，禁用拖拽偏移 */
+
+                #winui-mini-button {
+                    position: fixed;
+                    bottom: 30px;
+                    right: 30px;
+                    width: 48px;
+                    height: 48px;
+                    border-radius: 24px;
+                    background: var(--panel-bg);
+                    backdrop-filter: blur(20px);
+                    -webkit-backdrop-filter: blur(20px);
+                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+                    border: 1px solid var(--panel-border);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    z-index: 10001;
+                    transition: opacity 0.2s, transform 0.2s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+                    opacity: 0;
+                    pointer-events: none;
+                }
+
+                #winui-mini-button.visible {
+                    opacity: 1;
+                    pointer-events: auto;
+                }
+
+                #winui-mini-button:hover { transform: scale(1.05); }
+                #winui-mini-button svg { width: 24px; height: 24px; fill: var(--text-primary); }
+
                 @media (max-width: 700px) {
                     #winui-draggable-panel {
                         width: calc(100% - 20px) !important;
@@ -448,9 +553,7 @@
                         top: auto !important;
                         bottom: 10px !important;
                     }
-                    .winui-title {
-                        cursor: default;
-                    }
+                    .winui-title { cursor: default; }
                 }
             `);
         }
@@ -469,6 +572,11 @@
                 this.panel.style.left = 'auto';
                 this.panel.style.bottom = 'auto';
             }
+            const rect = this.panel.getBoundingClientRect();
+            this.normalStyle.left = rect.left;
+            this.normalStyle.top = rect.top;
+            this.normalStyle.width = rect.width;
+            this.normalStyle.height = rect.height;
         }
 
         _setupDragging() {
@@ -477,15 +585,14 @@
 
             header.addEventListener('mousedown', (e) => {
                 if (e.button !== 0) return;
-                // 移动端不启用拖拽
-                if (window.innerWidth <= 700) return;
-
+                if (window.innerWidth <= 700 || this.isAnimating) return;
                 this.isDragging = true;
                 this.startX = e.clientX;
                 this.startY = e.clientY;
                 const rect = this.panel.getBoundingClientRect();
                 this.initialLeft = rect.left;
                 this.initialTop = rect.top;
+                this.panel.style.transition = 'none';
                 this.panel.style.right = 'auto';
                 this.panel.style.left = this.initialLeft + 'px';
                 this.panel.style.top = this.initialTop + 'px';
@@ -509,17 +616,188 @@
             const onMouseUp = () => {
                 if (this.isDragging) {
                     this.isDragging = false;
+                    this.panel.style.transition = '';
                     const left = parseInt(this.panel.style.left, 10);
                     const top = parseInt(this.panel.style.top, 10);
                     if (!isNaN(left) && !isNaN(top)) {
                         localStorage.setItem('winuiPanelLeft', left);
                         localStorage.setItem('winuiPanelTop', top);
+                        if (!this.isMaximized) {
+                            this.normalStyle.left = left;
+                            this.normalStyle.top = top;
+                        }
                     }
                 }
             };
 
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp);
+        }
+
+        _setupWindowControls() {
+            document.getElementById('winui-close').addEventListener('click', () => this._animateClose());
+            document.getElementById('winui-minimize').addEventListener('click', () => this._animateMinimize());
+            document.getElementById('winui-maximize').addEventListener('click', () => this._toggleMaximize());
+        }
+
+        _animateClose() {
+            if (this.isAnimating) return;
+            this.isAnimating = true;
+            const panel = this.panel;
+
+            // 确保面板可见且无残留变换
+            panel.style.visibility = 'visible';
+            panel.style.transition = '';
+            panel.style.transform = '';
+            panel.style.opacity = '';
+            panel.offsetHeight; // 强制重绘
+
+            panel.style.pointerEvents = 'none';
+            panel.style.transformOrigin = 'center center';
+            panel.style.transition = `transform ${ANIM_DURATION}ms ${EASING_BACK}, opacity ${ANIM_DURATION}ms`;
+            panel.style.transform = 'scale(0)';
+            panel.style.opacity = '0';
+            setTimeout(() => {
+                panel.remove();
+                if (this.miniButton) this.miniButton.remove();
+                this.isAnimating = false;
+            }, ANIM_DURATION);
+        }
+
+        _animateMinimize() {
+            if (this.isAnimating) return;
+            this.isAnimating = true;
+            const panelRect = this.panel.getBoundingClientRect();
+            const miniRect = this.miniButton.getBoundingClientRect();
+
+            const scaleX = miniRect.width / panelRect.width;
+            const scaleY = miniRect.height / panelRect.height;
+            const translateX = miniRect.left + miniRect.width / 2 - (panelRect.left + panelRect.width / 2);
+            const translateY = miniRect.top + miniRect.height / 2 - (panelRect.top + panelRect.height / 2);
+
+            this.panel.style.transition = `transform ${ANIM_DURATION}ms ${EASING_BACK}, opacity ${ANIM_DURATION}ms`;
+            this.panel.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`;
+            this.panel.style.opacity = '0.6';
+
+            setTimeout(() => {
+                this.panel.style.visibility = 'hidden';
+                this.panel.style.transition = '';
+                this.panel.style.transform = '';
+                this.panel.style.opacity = '';
+                this.miniButton.classList.add('visible');
+                this.isAnimating = false;
+            }, ANIM_DURATION);
+        }
+
+        _animateRestoreFromMini() {
+            if (this.isAnimating) return;
+            this.isAnimating = true;
+
+            this.panel.style.visibility = 'visible';
+            const panelRect = this.panel.getBoundingClientRect();
+            const miniRect = this.miniButton.getBoundingClientRect();
+
+            const scaleX = miniRect.width / panelRect.width;
+            const scaleY = miniRect.height / panelRect.height;
+            const translateX = miniRect.left + miniRect.width / 2 - (panelRect.left + panelRect.width / 2);
+            const translateY = miniRect.top + miniRect.height / 2 - (panelRect.top + panelRect.height / 2);
+
+            this.panel.style.transition = 'none';
+            this.panel.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`;
+            this.panel.style.opacity = '0.6';
+            this.panel.offsetHeight;
+
+            this.panel.style.transition = `transform ${ANIM_DURATION}ms ${EASING_BACK}, opacity ${ANIM_DURATION}ms`;
+            this.panel.style.transform = 'translate(0, 0) scale(1)';
+            this.panel.style.opacity = '1';
+            this.miniButton.classList.remove('visible');
+
+            setTimeout(() => {
+                this.panel.style.transition = '';
+                this.panel.style.transform = ''; // 清理变换，避免影响后续操作
+                this.isAnimating = false;
+            }, ANIM_DURATION);
+        }
+
+        _toggleMaximize() {
+            if (this.isAnimating) return;
+            const rect = this.panel.getBoundingClientRect();
+            if (!this.isMaximized) {
+                // 保存正常状态
+                this.normalStyle.width = rect.width;
+                this.normalStyle.height = rect.height;
+                this.normalStyle.left = rect.left;
+                this.normalStyle.top = rect.top;
+                this.normalStyle.right = this.panel.style.right;
+
+                const newWidth = window.innerWidth * 0.75;
+                const newHeight = window.innerHeight * 0.75;
+                const newLeft = (window.innerWidth - newWidth) / 2;
+                const newTop = (window.innerHeight - newHeight) / 2;
+
+                this.panel.style.transition = `width ${ANIM_DURATION}ms ${EASING_BACK}, height ${ANIM_DURATION}ms ${EASING_BACK}, left ${ANIM_DURATION}ms ${EASING_BACK}, top ${ANIM_DURATION}ms ${EASING_BACK}`;
+                this.panel.style.width = newWidth + 'px';
+                this.panel.style.height = newHeight + 'px';
+                this.panel.style.left = newLeft + 'px';
+                this.panel.style.top = newTop + 'px';
+                this.panel.style.right = 'auto';
+                this.isMaximized = true;
+            } else {
+                this.panel.style.transition = `width ${ANIM_DURATION}ms ${EASING_BACK}, height ${ANIM_DURATION}ms ${EASING_BACK}, left ${ANIM_DURATION}ms ${EASING_BACK}, top ${ANIM_DURATION}ms ${EASING_BACK}`;
+                this.panel.style.width = this.normalStyle.width + 'px';
+                this.panel.style.height = this.normalStyle.height + 'px';
+                this.panel.style.left = this.normalStyle.left + 'px';
+                this.panel.style.top = this.normalStyle.top + 'px';
+                this.panel.style.right = 'auto';
+                this.isMaximized = false;
+            }
+            setTimeout(() => {
+                this.panel.style.transition = '';
+            }, ANIM_DURATION);
+        }
+
+        _createMiniButton() {
+            this.miniButton = document.createElement('div');
+            this.miniButton.id = 'winui-mini-button';
+            this.miniButton.innerHTML = `<svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2z"/></svg>`;
+            document.body.appendChild(this.miniButton);
+
+            this.miniButton.addEventListener('click', () => {
+                if (this.isAnimating) return;
+                this._animateRestoreFromMini();
+            });
+
+            let isDraggingMini = false, startX, startY, startLeft, startTop;
+            this.miniButton.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                isDraggingMini = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                const rect = this.miniButton.getBoundingClientRect();
+                startLeft = rect.left;
+                startTop = rect.top;
+                this.miniButton.style.transition = 'none';
+                e.preventDefault();
+            });
+            document.addEventListener('mousemove', (e) => {
+                if (!isDraggingMini) return;
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                let newLeft = startLeft + dx;
+                let newTop = startTop + dy;
+                newLeft = Math.min(window.innerWidth - 48, Math.max(0, newLeft));
+                newTop = Math.min(window.innerHeight - 48, Math.max(0, newTop));
+                this.miniButton.style.left = newLeft + 'px';
+                this.miniButton.style.top = newTop + 'px';
+                this.miniButton.style.right = 'auto';
+                this.miniButton.style.bottom = 'auto';
+            });
+            document.addEventListener('mouseup', () => {
+                if (isDraggingMini) {
+                    isDraggingMini = false;
+                    this.miniButton.style.transition = '';
+                }
+            });
         }
 
         _bindEvents() {
@@ -556,22 +834,14 @@
             const toast = document.createElement('div');
             toast.textContent = message;
             toast.style.cssText = `
-                position: fixed;
-                bottom: 30px;
-                right: 30px;
-                background: var(--toast-bg-error);
-                color: white;
-                padding: 12px 20px;
-                border-radius: 8px;
-                font-size: 14px;
-                z-index: 100000;
-                box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+                position: fixed; bottom: 30px; right: 30px;
+                background: var(--toast-bg-error); color: white;
+                padding: 12px 20px; border-radius: 8px; font-size: 14px;
+                z-index: 100000; box-shadow: 0 8px 20px rgba(0,0,0,0.3);
                 font-family: 'Segoe UI Variable', system-ui, sans-serif;
-                backdrop-filter: blur(10px);
-                -webkit-backdrop-filter: blur(10px);
+                backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
                 border: 1px solid rgba(255,255,255,0.2);
-                transition: opacity 0.3s;
-                pointer-events: none;
+                transition: opacity 0.3s; pointer-events: none;
             `;
             document.body.appendChild(toast);
             setTimeout(() => {
