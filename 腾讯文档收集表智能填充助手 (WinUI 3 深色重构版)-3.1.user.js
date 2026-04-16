@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         腾讯文档收集表智能填充助手 (WinUI 3 深色可拖拽版)
 // @namespace    http://tampermonkey.net/
-// @version      3.17
-// @description  一轮内随机课程不重复，根据课程总体时间点数量决定是否加星期，支持课程区间
+// @version      3.19
+// @description  深色毛玻璃可拖拽面板，随机按钮与输入框同行，一轮内不重复，最大化时按钮触底，空描述Ctrl+Enter触发随机
 // @author       Assistant
 // @match        *://docs.qq.com/form/page/*
 // @match        *://docs.qq.com/form/fill/*
@@ -124,7 +124,7 @@
             this.teacherCollege = teacherCollege;
             this.weeksRange = weeksRange;
             this.weeklySessions = new Map();
-            this.uniqueSessionsSet = new Set(); // 存储唯一的时间标识，用于判断是否需要加星期
+            this.uniqueSessionsSet = new Set();
         }
 
         addSession(weekMode, time, classroom, order) {
@@ -149,7 +149,6 @@
             for (const [_, list] of this.weeklySessions) {
                 list.sort((a, b) => a.order - b.order);
             }
-            // 记录唯一的时间标识（星期几+时间），用于判断是否需要加星期
             const weekday = Utils.getWeekdayFromTime(time);
             if (weekday) {
                 this.uniqueSessionsSet.add(`${weekday}_${time}`);
@@ -158,7 +157,6 @@
             }
         }
 
-        // 获取课程在所有周次中不同时间点的数量
         getUniqueSessionCount() {
             return this.uniqueSessionsSet.size;
         }
@@ -178,7 +176,6 @@
                 return c;
             };
 
-            // 普通课程（全学期）
             const c1 = add('程序设计实践', ['程序设计实践', 'easyx', '程设', '程设实践'], '焦贤沛', '计算机与人工智能学院');
             const c3 = add('中国近现代史纲要', ['近代史', '近现代史', '史纲', '纲要'], '吴通福', '马克思主义学院');
             const c4 = add('高等数学II', ['高数', '高数2', '高等数学二', '高数二', '高数II', '高等数学'], '俞丽兰', '信息管理与数学学院');
@@ -189,12 +186,9 @@
             const c11 = add('习近平新时代中国特色社会主义思想概论', ['习概', '新思想', '习近平'], '徐腊梅', '马克思主义学院');
             const c12 = add('数字逻辑与数字系统', ['数电', '数逻', '数字逻辑'], '包晗秋', '计算机与人工智能学院');
 
-            // 写作与沟通I：1-12周
             const c2 = add('写作与沟通I', ['写作', '语文', '沟通', '写沟', '写作与沟通'], '王柳芳', '社会与人文学院', [1, 12]);
-            // 形势与政策II：12-16周
             const c9 = add('形势与政策II', ['形势与政策', '形策'], '谢尔艾力.库尔班', '马克思主义学院', [12, 16]);
 
-            // 添加节次
             c1.addSession('全周', '3-12', '图文楼M103', 1);
             c2.addSession('全周', '1-34', '3310', 1);
             c3.addSession('全周', '2-345', '3203', 1);
@@ -351,12 +345,11 @@
             this.initialLeft = 0;
             this.initialTop = 0;
             this.isMaximized = false;
-            this.normalStyle = { width: 340, height: null, left: null, top: null, right: null, bottom: null };
+            this.normalStyle = { width: 360, height: null, left: null, top: null, right: null, bottom: null };
             this.miniButton = null;
             this.isAnimating = false;
-            // 随机池管理
-            this.randomPool = [];      // 存储当前可用的随机项（深拷贝）
-            this.lastPoolWeek = null;  // 记录生成池时的周次
+            this.randomPool = [];
+            this.lastPoolWeek = null;
         }
 
         create() {
@@ -376,16 +369,16 @@
                     <div class="winui-content">
                         <div class="winui-input-field">
                             <label>课程描述 <span class="optional">含节次/星期</span></label>
-                            <input type="text" id="courseDescInput" placeholder="例：第二节的高数II (留空则随机)" value="">
+                            <div class="input-with-button">
+                                <input type="text" id="courseDescInput" placeholder="例：第二节的高数II (留空则随机)" value="">
+                                <button id="randomBtn" class="winui-button inline">随机</button>
+                            </div>
                         </div>
-                        <div class="winui-input-field">
+                        <div id="feedbackField" class="winui-input-field">
                             <label>反馈内容</label>
                             <textarea id="feedbackInput" rows="3">${CONFIG.DEFAULT_FEEDBACK}</textarea>
                         </div>
-                        <div class="button-group">
-                            <button id="randomBtn" class="winui-button">🎲 随机选择课程</button>
-                            <button id="submitBtn" class="winui-button accent">✨ 填写并复制</button>
-                        </div>
+                        <button id="submitBtn" class="winui-button accent">✨ 填写并复制</button>
                     </div>
                 </div>
             `;
@@ -405,7 +398,6 @@
             });
         }
 
-        // 刷新随机池（根据当前周次生成所有可用项并打乱）
         _refreshRandomPool() {
             const currentWeek = Utils.getCurrentWeek();
             if (currentWeek === -1 || currentWeek > CONFIG.MAX_WEEK) {
@@ -419,7 +411,6 @@
                 this.lastPoolWeek = currentWeek;
                 return;
             }
-            // 为每个可用项生成一个副本，包含必要信息
             this.randomPool = available.map(item => ({
                 course: item.course,
                 session: item.session,
@@ -427,7 +418,6 @@
                 alias: item.course.aliases[0],
                 uniqueCount: item.course.getUniqueSessionCount()
             }));
-            // Fisher-Yates 洗牌算法打乱
             for (let i = this.randomPool.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [this.randomPool[i], this.randomPool[j]] = [this.randomPool[j], this.randomPool[i]];
@@ -435,17 +425,14 @@
             this.lastPoolWeek = currentWeek;
         }
 
-        // 从随机池中获取一个随机项（一轮内不重复）
         _getRandomPoolItem() {
             const currentWeek = Utils.getCurrentWeek();
-            // 如果周次变化或池为空，则重新生成
             if (this.lastPoolWeek !== currentWeek || this.randomPool.length === 0) {
                 this._refreshRandomPool();
             }
             if (this.randomPool.length === 0) {
                 return null;
             }
-            // 从池中取出最后一个（pop 效率高）
             return this.randomPool.pop();
         }
 
@@ -509,7 +496,7 @@
 
                 #winui-draggable-panel {
                     position: fixed;
-                    width: 340px;
+                    width: 360px;
                     height: auto;
                     z-index: 10000;
                     backdrop-filter: blur(20px) saturate(180%);
@@ -573,6 +560,14 @@
                 }
                 .winui-input-field {
                     margin-bottom: 16px;
+                    flex-shrink: 0;
+                }
+                #feedbackField {
+                    flex: 1;
+                    display: flex;
+                    resize: none;
+                    flex-direction: column;
+                    margin-bottom: 10px;
                 }
                 .winui-input-field label {
                     display: block;
@@ -586,10 +581,55 @@
                     color: var(--text-secondary);
                     margin-left: 6px;
                 }
-                #feedbackInput {
-                    margin-bottom: 16px;
+                .input-with-button {
+                    display: flex;
+                    gap: 8px;
+                    align-items: stretch;
                 }
-                .winui-input-field input,
+                .input-with-button input {
+                    flex: 1;
+                    padding: 10px 12px;
+                    background: var(--input-bg);
+                    border: 1px solid var(--input-border);
+                    border-radius: 8px;
+                    font-size: 14px;
+                    color: var(--text-primary);
+                    outline: none;
+                    box-sizing: border-box;
+                    transition: border 0.2s, box-shadow 0.2s, background 0.2s;
+                    font-family: inherit;
+                }
+                .input-with-button input:focus {
+                    border-color: var(--input-focus-border);
+                    box-shadow: 0 0 0 3px var(--input-focus-shadow);
+                    background: var(--input-bg);
+                }
+                #randomBtn {
+                    height: 36px;
+                }
+                .winui-button.inline {
+                    padding: 0 16px;
+                    height: 42px;
+                    border-radius: 8px;
+                    border: 1px solid var(--button-border);
+                    background: var(--button-bg);
+                    color: var(--text-primary);
+                    font-weight: 500;
+                    font-size: 14px;
+                    cursor: pointer;
+                    transition: all 0.25s ${EASING_BACK};
+                    white-space: nowrap;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .winui-button.inline:hover {
+                    background: var(--button-accent-hover);
+                    color: white;
+                }
+                .winui-button.inline:active {
+                    transform: scale(0.97);
+                }
                 .winui-input-field textarea {
                     width: 100%;
                     padding: 10px 12px;
@@ -603,32 +643,16 @@
                     transition: border 0.2s, box-shadow 0.2s, background 0.2s;
                     font-family: inherit;
                     resize: none;
-                    overflow: auto;
+                    flex: 1;
+                    min-height: 80px;
                 }
-                .winui-input-field input:focus,
                 .winui-input-field textarea:focus {
                     border-color: var(--input-focus-border);
                     box-shadow: 0 0 0 3px var(--input-focus-shadow);
                     background: var(--input-bg);
                 }
-                .winui-input-field:last-of-type {
-                    flex: 1;
-                    display: flex;
-                    flex-direction: column;
-                    margin-bottom: 0;
-                }
-                .winui-input-field:last-of-type textarea {
-                    flex: 1;
-                    resize: none;
-                    min-height: 80px;
-                }
-                .button-group {
-                    display: flex;
-                    gap: 12px;
-                    margin-top: 8px;
-                }
-                .winui-button {
-                    flex: 1;
+                .winui-button.accent {
+                    width: 100%;
                     padding: 10px 16px;
                     border-radius: 8px;
                     border: none;
@@ -636,14 +660,10 @@
                     font-size: 14px;
                     cursor: pointer;
                     transition: all 0.25s ${EASING_BACK};
-                    background: var(--button-bg);
-                    color: var(--text-primary);
-                    border: 1px solid var(--button-border);
-                }
-                .winui-button.accent {
                     background: var(--button-accent-bg);
-                    border: none;
                     color: white;
+                    margin-top: 8px;
+                    flex-shrink: 0;
                 }
                 .winui-button.accent:hover { background: var(--button-accent-hover); }
                 .winui-button.accent:active { background: var(--button-accent-active); transform: scale(0.97); }
@@ -656,8 +676,6 @@
                     cursor: not-allowed;
                     transform: none;
                 }
-                .winui-button:not(.accent):hover { background: var(--button-accent-hover); color: white; }
-                .winui-button:not(.accent):active { transform: scale(0.97); }
                 #winui-mini-button {
                     position: fixed;
                     bottom: 30px;
@@ -959,16 +977,23 @@
             descInput.addEventListener('input', updateSubmitState);
             updateSubmitState();
 
+            // Ctrl+Enter: 课程为空时触发随机，否则触发提交（如果可用）
             const handleCtrlEnter = (e) => {
-                if (e.ctrlKey && e.key === 'Enter' && !this.submitBtn.disabled) {
+                if (e.ctrlKey && e.key === 'Enter') {
                     e.preventDefault();
-                    this.submitBtn.click();
+                    const desc = descInput.value.trim();
+                    if (desc === '') {
+                        this.randomBtn.click();
+                    } else {
+                        if (!this.submitBtn.disabled) {
+                            this.submitBtn.click();
+                        }
+                    }
                 }
             };
             descInput.addEventListener('keydown', handleCtrlEnter);
             fbInput.addEventListener('keydown', handleCtrlEnter);
 
-            // 随机按钮：从随机池中取一项（一轮内不重复）
             this.randomBtn.addEventListener('click', () => {
                 const poolItem = this._getRandomPoolItem();
                 if (!poolItem) {
@@ -976,7 +1001,6 @@
                     return;
                 }
                 const alias = poolItem.alias;
-                // 判断是否需要加星期：根据该课程所有周次中不同时间点的数量
                 const needWeekday = poolItem.uniqueCount > 1;
                 let description;
                 if (needWeekday) {
