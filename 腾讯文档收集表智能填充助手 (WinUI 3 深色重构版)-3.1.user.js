@@ -291,7 +291,7 @@
                     <div class="winui-content">
                         <div class="winui-input-field">
                             <label>课程描述 <span class="optional">含节次</span></label>
-                            <input type="text" id="courseDescInput" placeholder="例：第二节的高数II" value="">
+                            <input type="text" id="courseDescInput" placeholder="例：第二节的高数II（留空则随机）" value="">
                         </div>
                         <div class="winui-input-field">
                             <label>反馈内容</label>
@@ -806,11 +806,27 @@
             this.btn.addEventListener('click', async () => {
                 const descInput = document.getElementById('courseDescInput');
                 const fbInput = document.getElementById('feedbackInput');
-                const desc = descInput.value.trim();
+                var desc = descInput.value.trim();
+
                 if (!desc) {
-                    this.showErrorToast("请输入课程描述");
-                    return;
+                    const preset = [
+                        "程设",
+                        "写作",
+                        "近代史",
+                        "高数",
+                        "大英",
+                        "Java",
+                        "毛概",
+                        "形式与政策",
+                        "大物",
+                        "习概",
+                        "数电",
+                    ]
+
+                    desc = preset[Math.floor(Math.random() * preset.length)];
+                    descInput.value = desc;
                 }
+
                 const fb = fbInput.value;
                 this.btn.disabled = true;
                 try {
