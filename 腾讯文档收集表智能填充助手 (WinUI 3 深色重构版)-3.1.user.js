@@ -291,7 +291,7 @@
                     <div class="winui-content">
                         <div class="winui-input-field">
                             <label>课程描述 <span class="optional">含节次</span></label>
-                            <input type="text" id="courseDescInput" placeholder="例：第二节的高数II" value="第二节的高数II">
+                            <input type="text" id="courseDescInput" placeholder="例：第二节的高数II" value="">
                         </div>
                         <div class="winui-input-field">
                             <label>反馈内容</label>
@@ -375,6 +375,7 @@
                     font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
                     pointer-events: none;
                     will-change: transform, opacity, width, left, top;
+                    border-radius: 12px;
                 }
                 .winui-panel {
                     background: var(--panel-bg);
@@ -443,7 +444,7 @@
                     color: var(--text-secondary);
                     margin-left: 6px;
                 }
-                #feedbackInput { 
+                #feedbackInput {
                     margin-bottom: 16px;
                 }
                 .winui-input-field input,
@@ -459,7 +460,8 @@
                     box-sizing: border-box;
                     transition: border 0.2s, box-shadow 0.2s, background 0.2s;
                     font-family: inherit;
-                    resize: vertical;
+                    resize: none;
+                    overflow: auto;
                 }
                 .winui-input-field input:focus,
                 .winui-input-field textarea:focus {
@@ -475,7 +477,7 @@
                 }
                 .winui-input-field:last-of-type textarea {
                     flex: 1;
-                    resize: vertical;
+                    resize: none;
                     min-height: 80px;
                 }
                 .winui-button {
