@@ -605,6 +605,7 @@
                     background: var(--input-bg);
                 }
                 #randomBtn {
+                    box-sizing: content-box;
                     height: 36px;
                 }
                 .winui-button.inline {
