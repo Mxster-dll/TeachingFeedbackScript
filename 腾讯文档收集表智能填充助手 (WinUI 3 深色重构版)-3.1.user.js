@@ -498,6 +498,10 @@
                     }
                     .winui-button.accent { color: #1a1a1a !important; }
                 }
+                
+                * {
+                    font-family: 'Cascadia Code', Consolas, '霞鹜文楷', '仓耳今楷01';
+                }
 
                 #winui-draggable-panel {
                     position: fixed;
