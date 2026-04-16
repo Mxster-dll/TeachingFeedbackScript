@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         腾讯文档收集表智能填充助手 (WinUI 3 深色可拖拽版)
 // @namespace    http://tampermonkey.net/
-// @version      3.11
-// @description  深色毛玻璃可拖拽面板，macOS红绿灯+强回弹动画，最大化75%视口，支持Ctrl+Enter快捷键提交，动态按钮文本
-// @author       Assistant (Refactored)
+// @version      3.17
+// @description  一轮内随机课程不重复，根据课程总体时间点数量决定是否加星期，支持课程区间
+// @author       Assistant
 // @match        *://docs.qq.com/form/page/*
 // @match        *://docs.qq.com/form/fill/*
 // @icon         https://docs.qq.com/favicon.ico
@@ -23,11 +23,16 @@
         DEFAULT_FEEDBACK: '老师按时到达教室，发布签到，同学们按时到达。课堂氛围活跃，无早退现象。',
         SEMESTER_START: new Date(2026, 2, 2),
         MAX_WEEK: 16,
-        RANDOM_PRESETS: ['程设', '写作', '近代史', '高数', '大英', 'Java', '毛概', '形势与政策', '大物', '习概', '数电']
     };
 
     const EASING_BACK = 'cubic-bezier(0.68, -0.55, 0.265, 1.55)';
     const ANIM_DURATION = 600;
+
+    // 星期映射
+    const WEEKDAY_MAP = {
+        '周一': 1, '周二': 2, '周三': 3, '周四': 4, '周五': 5, '周六': 6, '周日': 7,
+        '星期一': 1, '星期二': 2, '星期三': 3, '星期四': 4, '星期五': 5, '星期六': 6, '星期日': 7
+    };
 
     // ------------------------------ 工具函数 ------------------------------
     const Utils = {
@@ -47,6 +52,13 @@
         extractOrdinal(text) {
             const match = text.match(/第([一二三四五六七八九十]+)节/);
             return match ? this.chineseToNumber(match[1]) : 1;
+        },
+
+        extractWeekday(text) {
+            for (const [key, val] of Object.entries(WEEKDAY_MAP)) {
+                if (text.includes(key)) return val;
+            }
+            return null;
         },
 
         removeWeekInfo(text) {
@@ -75,6 +87,23 @@
                     return false;
                 }
             }
+        },
+
+        getWeekdayFromTime(timeStr) {
+            const match = timeStr.match(/^(\d+)-/);
+            return match ? parseInt(match[1], 10) : null;
+        },
+
+        weekdayNumToChinese(num) {
+            const map = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
+            return map[num] || '';
+        },
+
+        generateWeeks(range) {
+            const [start, end] = range;
+            const weeks = [];
+            for (let i = start; i <= end; i++) weeks.push(i);
+            return weeks;
         }
     };
 
@@ -88,22 +117,27 @@
     }
 
     class Course {
-        constructor(formalName, aliases, teacher, teacherCollege) {
+        constructor(formalName, aliases, teacher, teacherCollege, weeksRange = [1, 16]) {
             this.formalName = formalName;
             this.aliases = aliases;
             this.teacher = teacher;
             this.teacherCollege = teacherCollege;
+            this.weeksRange = weeksRange;
             this.weeklySessions = new Map();
+            this.uniqueSessionsSet = new Set(); // 存储唯一的时间标识，用于判断是否需要加星期
         }
 
         addSession(weekMode, time, classroom, order) {
-            const weeks = [];
+            let weeks = [];
+            const rangeWeeks = Utils.generateWeeks(this.weeksRange);
             if (weekMode === '全周') {
-                for (let i = 1; i <= CONFIG.MAX_WEEK; i++) weeks.push(i);
+                weeks = rangeWeeks;
             } else if (weekMode === '单周') {
-                for (let i = 1; i <= CONFIG.MAX_WEEK; i += 2) weeks.push(i);
+                weeks = rangeWeeks.filter(w => w % 2 === 1);
             } else if (weekMode === '双周') {
-                for (let i = 2; i <= CONFIG.MAX_WEEK; i += 2) weeks.push(i);
+                weeks = rangeWeeks.filter(w => w % 2 === 0);
+            } else {
+                return;
             }
             for (const w of weeks) {
                 if (!this.weeklySessions.has(w)) this.weeklySessions.set(w, []);
@@ -115,6 +149,18 @@
             for (const [_, list] of this.weeklySessions) {
                 list.sort((a, b) => a.order - b.order);
             }
+            // 记录唯一的时间标识（星期几+时间），用于判断是否需要加星期
+            const weekday = Utils.getWeekdayFromTime(time);
+            if (weekday) {
+                this.uniqueSessionsSet.add(`${weekday}_${time}`);
+            } else {
+                this.uniqueSessionsSet.add(time);
+            }
+        }
+
+        // 获取课程在所有周次中不同时间点的数量
+        getUniqueSessionCount() {
+            return this.uniqueSessionsSet.size;
         }
     }
 
@@ -126,32 +172,35 @@
         }
 
         _buildData() {
-            const add = (name, aliases, teacher, college) => {
-                const c = new Course(name, aliases, teacher, college);
+            const add = (name, aliases, teacher, college, weeksRange = [1, 16]) => {
+                const c = new Course(name, aliases, teacher, college, weeksRange);
                 this.courses.set(name, c);
                 return c;
             };
 
-            const c1 = add('程序设计实践', ['easyx', '程设', '程设实践', '程序设计实践'], '焦贤沛', '计算机与人工智能学院');
-            const c2 = add('写作与沟通I', ['语文', '写作', '沟通', '写沟', '写作与沟通'], '王柳芳', '社会与人文学院');
+            // 普通课程（全学期）
+            const c1 = add('程序设计实践', ['程序设计实践', 'easyx', '程设', '程设实践'], '焦贤沛', '计算机与人工智能学院');
             const c3 = add('中国近现代史纲要', ['近代史', '近现代史', '史纲', '纲要'], '吴通福', '马克思主义学院');
-            const c4 = add('高等数学II', ['高数II', '高数2', '高等数学二', '高数二', '高数', '高等数学'], '俞丽兰', '信息管理与数学学院');
+            const c4 = add('高等数学II', ['高数', '高数2', '高等数学二', '高数二', '高数II', '高等数学'], '俞丽兰', '信息管理与数学学院');
             const c5 = add('大学英语II', ['大英', '英语', '大英II', '英语II', '大学英语'], '史希平', '外国语学院');
-            const c6 = add('体育2', ['体育', '体育二'], '彭永善', '体育学院');
-            const c7 = add('面向对象程序设计(双语)', ['java', 'oop', '面向对象', '面向对象程序设计'], '夏雪', '计算机与人工智能学院');
+            const c7 = add('面向对象程序设计(双语)', ['Java', 'oop', '面向对象', '面向对象程序设计'], '夏雪', '计算机与人工智能学院');
             const c8 = add('毛泽东思想和中国特色社会主义理论体系概论', ['毛概', '毛中特', '毛泽东', '理论体系'], '康立芳', '马克思主义学院');
-            const c9 = add('形势与政策II', ['形策', '形势与政策'], '谢尔艾力.库尔班', '马克思主义学院');
             const c10 = add('大学物理', ['大物', '物理'], '余泉茂', '软件与物联网工程学院');
             const c11 = add('习近平新时代中国特色社会主义思想概论', ['习概', '新思想', '习近平'], '徐腊梅', '马克思主义学院');
-            const c12 = add('数字逻辑与数字系统', ['数逻', '数字逻辑', '数电'], '包晗秋', '计算机与人工智能学院');
+            const c12 = add('数字逻辑与数字系统', ['数电', '数逻', '数字逻辑'], '包晗秋', '计算机与人工智能学院');
 
+            // 写作与沟通I：1-12周
+            const c2 = add('写作与沟通I', ['写作', '语文', '沟通', '写沟', '写作与沟通'], '王柳芳', '社会与人文学院', [1, 12]);
+            // 形势与政策II：12-16周
+            const c9 = add('形势与政策II', ['形势与政策', '形策'], '谢尔艾力.库尔班', '马克思主义学院', [12, 16]);
+
+            // 添加节次
             c1.addSession('全周', '3-12', '图文楼M103', 1);
             c2.addSession('全周', '1-34', '3310', 1);
             c3.addSession('全周', '2-345', '3203', 1);
             c4.addSession('全周', '1-101112', '3303', 1);
             c4.addSession('全周', '3-345', '3304', 2);
             c5.addSession('全周', '4-34', '3207', 1);
-            c6.addSession('全周', '5-34', '乒乓球场T021', 1);
             c7.addSession('单周', '1-678', '3407', 1);
             c7.addSession('双周', '1-678', '图文楼M106', 1);
             c8.addSession('全周', '2-678', '3303', 1);
@@ -171,6 +220,26 @@
             }
             return null;
         }
+
+        getAvailableSessionsForCurrentWeek() {
+            const week = Utils.getCurrentWeek();
+            if (week === -1 || week > CONFIG.MAX_WEEK) return [];
+            const result = [];
+            for (const course of this.courses.values()) {
+                if (week < course.weeksRange[0] || week > course.weeksRange[1]) continue;
+                const sessions = course.weeklySessions.get(week);
+                if (sessions && sessions.length > 0) {
+                    for (const session of sessions) {
+                        result.push({
+                            course: course,
+                            session: session,
+                            weekdayNum: Utils.getWeekdayFromTime(session.time),
+                        });
+                    }
+                }
+            }
+            return result;
+        }
     }
 
     // ------------------------------ 解析服务 ------------------------------
@@ -182,17 +251,29 @@
         parse(inputText, customFeedback = null) {
             const cleaned = Utils.removeWeekInfo(inputText);
             const ordinal = Utils.extractOrdinal(cleaned);
+            const weekday = Utils.extractWeekday(cleaned);
             const course = this.repo.findCourse(cleaned);
             if (!course) return { error: '未匹配到课程，请检查课程别名' };
 
             const week = Utils.getCurrentWeek();
             if (week === -1) return { error: '当前日期早于开学日' };
             if (week > CONFIG.MAX_WEEK) return { error: `当前第${week}周超出课表范围` };
+            if (week < course.weeksRange[0] || week > course.weeksRange[1]) {
+                return { error: `「${course.formalName}」不在当前周次区间内（第${course.weeksRange[0]}-${course.weeksRange[1]}周）` };
+            }
 
-            const sessions = course.weeklySessions.get(week);
+            let sessions = course.weeklySessions.get(week);
             if (!sessions || sessions.length === 0) {
                 return { error: `「${course.formalName}」第${week}周无课` };
             }
+
+            if (weekday !== null) {
+                sessions = sessions.filter(s => Utils.getWeekdayFromTime(s.time) === weekday);
+                if (sessions.length === 0) {
+                    return { error: `「${course.formalName}」在第${week}周没有星期${Utils.weekdayNumToChinese(weekday)}的课` };
+                }
+            }
+
             if (ordinal < 1 || ordinal > sessions.length) {
                 return { error: `第${week}周共${sessions.length}节，您指定第${ordinal}节无效` };
             }
@@ -257,12 +338,12 @@
 
     // ------------------------------ 深色毛玻璃可拖拽面板 ------------------------------
     class DraggableWinUIPanel {
-        constructor(onFill) {
+        constructor(onFill, repo) {
             this.onFill = onFill;
+            this.repo = repo;
             this.panel = null;
-            this.btn = null;
-            this.originalBtnText = '✨ 填写并复制';
-            this.randomBtnText = '🎲 随机选择课程';
+            this.submitBtn = null;
+            this.randomBtn = null;
             this.timeoutId = null;
             this.isDragging = false;
             this.startX = 0;
@@ -273,6 +354,9 @@
             this.normalStyle = { width: 340, height: null, left: null, top: null, right: null, bottom: null };
             this.miniButton = null;
             this.isAnimating = false;
+            // 随机池管理
+            this.randomPool = [];      // 存储当前可用的随机项（深拷贝）
+            this.lastPoolWeek = null;  // 记录生成池时的周次
         }
 
         create() {
@@ -291,19 +375,23 @@
                     </div>
                     <div class="winui-content">
                         <div class="winui-input-field">
-                            <label>课程描述 <span class="optional">含节次</span></label>
-                            <input type="text" id="courseDescInput" placeholder="例：第二节的高数II（留空则随机）" value="">
+                            <label>课程描述 <span class="optional">含节次/星期</span></label>
+                            <input type="text" id="courseDescInput" placeholder="例：第二节的高数II (留空则随机)" value="">
                         </div>
                         <div class="winui-input-field">
                             <label>反馈内容</label>
                             <textarea id="feedbackInput" rows="3">${CONFIG.DEFAULT_FEEDBACK}</textarea>
                         </div>
-                        <button id="fillBtn" class="winui-button accent">${this.originalBtnText}</button>
+                        <div class="button-group">
+                            <button id="randomBtn" class="winui-button">🎲 随机选择课程</button>
+                            <button id="submitBtn" class="winui-button accent">✨ 填写并复制</button>
+                        </div>
                     </div>
                 </div>
             `;
             document.body.appendChild(this.panel);
-            this.btn = document.getElementById('fillBtn');
+            this.submitBtn = document.getElementById('submitBtn');
+            this.randomBtn = document.getElementById('randomBtn');
             this._injectStyles();
             this._restorePosition();
             this._setupDragging();
@@ -317,13 +405,54 @@
             });
         }
 
-        _updateButtonText() {
-            const descInput = document.getElementById('courseDescInput');
-            if (descInput && descInput.value.trim() === '') {
-                this.btn.innerHTML = this.randomBtnText;
-            } else {
-                this.btn.innerHTML = this.originalBtnText;
+        // 刷新随机池（根据当前周次生成所有可用项并打乱）
+        _refreshRandomPool() {
+            const currentWeek = Utils.getCurrentWeek();
+            if (currentWeek === -1 || currentWeek > CONFIG.MAX_WEEK) {
+                this.randomPool = [];
+                this.lastPoolWeek = currentWeek;
+                return;
             }
+            const available = this.repo.getAvailableSessionsForCurrentWeek();
+            if (available.length === 0) {
+                this.randomPool = [];
+                this.lastPoolWeek = currentWeek;
+                return;
+            }
+            // 为每个可用项生成一个副本，包含必要信息
+            this.randomPool = available.map(item => ({
+                course: item.course,
+                session: item.session,
+                weekdayNum: item.weekdayNum,
+                alias: item.course.aliases[0],
+                uniqueCount: item.course.getUniqueSessionCount()
+            }));
+            // Fisher-Yates 洗牌算法打乱
+            for (let i = this.randomPool.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [this.randomPool[i], this.randomPool[j]] = [this.randomPool[j], this.randomPool[i]];
+            }
+            this.lastPoolWeek = currentWeek;
+        }
+
+        // 从随机池中获取一个随机项（一轮内不重复）
+        _getRandomPoolItem() {
+            const currentWeek = Utils.getCurrentWeek();
+            // 如果周次变化或池为空，则重新生成
+            if (this.lastPoolWeek !== currentWeek || this.randomPool.length === 0) {
+                this._refreshRandomPool();
+            }
+            if (this.randomPool.length === 0) {
+                return null;
+            }
+            // 从池中取出最后一个（pop 效率高）
+            return this.randomPool.pop();
+        }
+
+        _updateSubmitDisabled() {
+            const descInput = document.getElementById('courseDescInput');
+            const isEmpty = descInput && descInput.value.trim() === '';
+            this.submitBtn.disabled = isEmpty;
         }
 
         _closeIconSVG() {
@@ -354,6 +483,7 @@
                     --button-accent-bg: #0078d4;
                     --button-accent-hover: #106ebe;
                     --button-accent-active: #005a9e;
+                    --button-disabled-opacity: 0.5;
                     --toast-bg-error: rgba(196, 43, 28, 0.9);
                 }
                 @media (prefers-color-scheme: dark) {
@@ -371,6 +501,7 @@
                         --button-accent-bg: #60cdff;
                         --button-accent-hover: #3aa0d0;
                         --button-accent-active: #1e7aa8;
+                        --button-disabled-opacity: 0.5;
                         --toast-bg-error: rgba(220, 60, 60, 0.9);
                     }
                     .winui-button.accent { color: #1a1a1a !important; }
@@ -491,8 +622,13 @@
                     resize: none;
                     min-height: 80px;
                 }
+                .button-group {
+                    display: flex;
+                    gap: 12px;
+                    margin-top: 8px;
+                }
                 .winui-button {
-                    width: 100%;
+                    flex: 1;
                     padding: 10px 16px;
                     border-radius: 8px;
                     border: none;
@@ -507,8 +643,7 @@
                 .winui-button.accent {
                     background: var(--button-accent-bg);
                     border: none;
-                    margin-top: auto;
-                    flex-shrink: 0;
+                    color: white;
                 }
                 .winui-button.accent:hover { background: var(--button-accent-hover); }
                 .winui-button.accent:active { background: var(--button-accent-active); transform: scale(0.97); }
@@ -516,6 +651,13 @@
                     background: #0e7a4d !important;
                     color: white !important;
                 }
+                .winui-button.accent:disabled {
+                    opacity: var(--button-disabled-opacity);
+                    cursor: not-allowed;
+                    transform: none;
+                }
+                .winui-button:not(.accent):hover { background: var(--button-accent-hover); color: white; }
+                .winui-button:not(.accent):active { transform: scale(0.97); }
                 #winui-mini-button {
                     position: fixed;
                     bottom: 30px;
@@ -813,49 +955,62 @@
             const descInput = document.getElementById('courseDescInput');
             const fbInput = document.getElementById('feedbackInput');
 
-            // 实时更新按钮文本
-            const updateBtnText = () => this._updateButtonText();
-            descInput.addEventListener('input', updateBtnText);
-            // 初始调用一次
-            updateBtnText();
+            const updateSubmitState = () => this._updateSubmitDisabled();
+            descInput.addEventListener('input', updateSubmitState);
+            updateSubmitState();
 
-            // Ctrl+Enter 快捷键
             const handleCtrlEnter = (e) => {
-                if (e.ctrlKey && e.key === 'Enter') {
+                if (e.ctrlKey && e.key === 'Enter' && !this.submitBtn.disabled) {
                     e.preventDefault();
-                    this.btn.click();
+                    this.submitBtn.click();
                 }
             };
             descInput.addEventListener('keydown', handleCtrlEnter);
             fbInput.addEventListener('keydown', handleCtrlEnter);
 
-            this.btn.addEventListener('click', async () => {
-                const desc = descInput.value.trim();
-                if (!desc) {
-                    descInput.value = CONFIG.RANDOM_PRESETS[Math.floor(Math.random() * CONFIG.RANDOM_PRESETS.length)];
-
-                    // 手动触发一次 input 事件以更新按钮文本（实际上输入值变化会自动触发，但为了保险）
-                    descInput.dispatchEvent(new Event('input', { bubbles: true }));
+            // 随机按钮：从随机池中取一项（一轮内不重复）
+            this.randomBtn.addEventListener('click', () => {
+                const poolItem = this._getRandomPoolItem();
+                if (!poolItem) {
+                    this.showErrorToast('当前周次没有可用的课程，请手动输入');
                     return;
                 }
+                const alias = poolItem.alias;
+                // 判断是否需要加星期：根据该课程所有周次中不同时间点的数量
+                const needWeekday = poolItem.uniqueCount > 1;
+                let description;
+                if (needWeekday) {
+                    const weekdayChinese = Utils.weekdayNumToChinese(poolItem.weekdayNum);
+                    description = `${weekdayChinese}${alias}`;
+                } else {
+                    description = alias;
+                }
+                descInput.value = description;
+                descInput.dispatchEvent(new Event('input', { bubbles: true }));
+            });
 
+            this.submitBtn.addEventListener('click', async () => {
+                const desc = descInput.value.trim();
+                if (!desc) return;
                 const fb = fbInput.value;
-                this.btn.disabled = true;
+                this.submitBtn.disabled = true;
                 try {
                     await this.onFill(desc, fb);
                 } finally {
-                    this.btn.disabled = false;
+                    this.submitBtn.disabled = false;
+                    this._updateSubmitDisabled();
                 }
             });
         }
 
         showSuccessOnButton() {
             if (this.timeoutId) clearTimeout(this.timeoutId);
-            this.btn.classList.add('success');
-            this.btn.innerHTML = `<span style="display:flex;align-items:center;justify-content:center;gap:6px;">✅ 已复制到剪贴板</span>`;
+            this.submitBtn.classList.add('success');
+            const originalText = this.submitBtn.innerHTML;
+            this.submitBtn.innerHTML = `<span style="display:flex;align-items:center;justify-content:center;gap:6px;">✅ 已复制到剪贴板</span>`;
             this.timeoutId = setTimeout(() => {
-                this.btn.classList.remove('success');
-                this._updateButtonText(); // 恢复原始按钮文本
+                this.submitBtn.classList.remove('success');
+                this.submitBtn.innerHTML = originalText;
                 this.timeoutId = null;
             }, 1800);
         }
@@ -887,7 +1042,7 @@
             this.repo = new CourseRepository();
             this.parser = new CourseParser(this.repo);
             this.filler = new FormFiller();
-            this.panel = new DraggableWinUIPanel(this._handleFill.bind(this));
+            this.panel = new DraggableWinUIPanel(this._handleFill.bind(this), this.repo);
             this.init();
         }
 
