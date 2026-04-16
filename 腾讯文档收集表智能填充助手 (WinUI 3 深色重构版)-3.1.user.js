@@ -355,6 +355,10 @@
         create() {
             this.panel = document.createElement('div');
             this.panel.id = 'winui-draggable-panel';
+            this.panel.style.visibility = 'hidden';
+            this.panel.style.transition = '';
+            this.panel.style.transform = '';
+            this.panel.style.opacity = '0';
             this.panel.innerHTML = `
                 <div class="winui-panel">
                     <div class="winui-title-bar">
@@ -382,6 +386,7 @@
                     </div>
                 </div>
             `;
+
             document.body.appendChild(this.panel);
             this.submitBtn = document.getElementById('submitBtn');
             this.randomBtn = document.getElementById('randomBtn');
@@ -930,6 +935,7 @@
             this.miniButton = document.createElement('div');
             this.miniButton.id = 'winui-mini-button';
             this.miniButton.innerHTML = `<svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2z"/></svg>`;
+            this.miniButton.classList.add('visible');
             document.body.appendChild(this.miniButton);
 
             this.miniButton.addEventListener('click', () => {
