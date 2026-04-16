@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         腾讯文档收集表智能填充助手 (WinUI 3 深色可拖拽版)
 // @namespace    http://tampermonkey.net/
-// @version      3.9
-// @description  深色毛玻璃可拖拽面板，macOS红绿灯+强回弹动画，最大化75%视口（修复首次最大化高度突变）
+// @version      3.11
+// @description  深色毛玻璃可拖拽面板，macOS红绿灯+强回弹动画，最大化75%视口，支持Ctrl+Enter快捷键提交，动态按钮文本
 // @author       Assistant (Refactored)
 // @match        *://docs.qq.com/form/page/*
 // @match        *://docs.qq.com/form/fill/*
@@ -16,44 +16,44 @@
 
     // ------------------------------ 配置常量 ------------------------------
     const CONFIG = {
-        INFO_OFFICER: "范怡乐",
-        CAMPUS: "麦庐",
-        COLLEGE: "计算机与人工智能学院",
-        STUDENT_COUNT: "45",
-        DEFAULT_FEEDBACK: "老师按时到达教室，发布签到，同学们按时到达。课堂氛围活跃，无早退现象。",
+        INFO_OFFICER: '范怡乐',
+        CAMPUS: '麦庐',
+        COLLEGE: '计算机与人工智能学院',
+        STUDENT_COUNT: '45',
+        DEFAULT_FEEDBACK: '老师按时到达教室，发布签到，同学们按时到达。课堂氛围活跃，无早退现象。',
         SEMESTER_START: new Date(2026, 2, 2),
-        MAX_WEEK: 16
+        MAX_WEEK: 16,
+        RANDOM_PRESETS: ['程设', '写作', '近代史', '高数', '大英', 'Java', '毛概', '形势与政策', '大物', '习概', '数电']
     };
 
-    // 强回弹缓动函数
     const EASING_BACK = 'cubic-bezier(0.68, -0.55, 0.265, 1.55)';
     const ANIM_DURATION = 600;
 
     // ------------------------------ 工具函数 ------------------------------
-    class Utils {
-        static chineseToNumber(chinese) {
+    const Utils = {
+        chineseToNumber(chinese) {
             const map = { '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 };
             if (!chinese) return 0;
             if (chinese === '十') return 10;
             if (chinese.startsWith('十')) return 10 + (map[chinese[1]] || 0);
             if (chinese.endsWith('十')) return (map[chinese[0]] || 0) * 10;
             if (chinese.includes('十')) {
-                let [left, right] = chinese.split('十');
+                const [left, right] = chinese.split('十');
                 return (map[left] || 0) * 10 + (map[right] || 0);
             }
             return map[chinese] || 0;
-        }
+        },
 
-        static extractOrdinal(text) {
+        extractOrdinal(text) {
             const match = text.match(/第([一二三四五六七八九十]+)节/);
-            return match ? Utils.chineseToNumber(match[1]) : 1;
-        }
+            return match ? this.chineseToNumber(match[1]) : 1;
+        },
 
-        static removeWeekInfo(text) {
+        removeWeekInfo(text) {
             return text.replace(/第[一二三四五六七八九十]+周/g, '');
-        }
+        },
 
-        static getCurrentWeek() {
+        getCurrentWeek() {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             const start = new Date(CONFIG.SEMESTER_START);
@@ -61,9 +61,9 @@
             const diff = Math.floor((today - start) / 86400000);
             if (diff < 0) return -1;
             return Math.floor(diff / 7) + 1;
-        }
+        },
 
-        static async copyToClipboard(text) {
+        async copyToClipboard(text) {
             try {
                 GM_setClipboard(text, 'text');
                 return true;
@@ -76,7 +76,7 @@
                 }
             }
         }
-    }
+    };
 
     // ------------------------------ 课程数据模型 ------------------------------
     class Session {
@@ -98,21 +98,21 @@
 
         addSession(weekMode, time, classroom, order) {
             const weeks = [];
-            if (weekMode === "全周") {
+            if (weekMode === '全周') {
                 for (let i = 1; i <= CONFIG.MAX_WEEK; i++) weeks.push(i);
-            } else if (weekMode === "单周") {
+            } else if (weekMode === '单周') {
                 for (let i = 1; i <= CONFIG.MAX_WEEK; i += 2) weeks.push(i);
-            } else if (weekMode === "双周") {
+            } else if (weekMode === '双周') {
                 for (let i = 2; i <= CONFIG.MAX_WEEK; i += 2) weeks.push(i);
             }
-            for (let w of weeks) {
+            for (const w of weeks) {
                 if (!this.weeklySessions.has(w)) this.weeklySessions.set(w, []);
                 const sessions = this.weeklySessions.get(w);
                 if (!sessions.some(s => s.time === time && s.classroom === classroom)) {
                     sessions.push(new Session(time, classroom, order));
                 }
             }
-            for (let [_, list] of this.weeklySessions) {
+            for (const [_, list] of this.weeklySessions) {
                 list.sort((a, b) => a.order - b.order);
             }
         }
@@ -132,40 +132,40 @@
                 return c;
             };
 
-            const c1 = add("程序设计实践", ["easyx", "程设", "程设实践", "程序设计实践"], "焦贤沛", "计算机与人工智能学院");
-            const c2 = add("写作与沟通I", ["语文", "写作", "沟通", "写沟", "写作与沟通"], "王柳芳", "社会与人文学院");
-            const c3 = add("中国近现代史纲要", ["近代史", "近现代史", "史纲", "纲要"], "吴通福", "马克思主义学院");
-            const c4 = add("高等数学II", ["高数II", "高数2", "高等数学二", "高数二", "高数", "高等数学"], "俞丽兰", "信息管理与数学学院");
-            const c5 = add("大学英语II", ["大英", "英语", "大英II", "英语II", "大学英语"], "史希平", "外国语学院");
-            const c6 = add("体育2", ["体育", "体育二"], "彭永善", "体育学院");
-            const c7 = add("面向对象程序设计(双语)", ["java", "oop", "面向对象", "面向对象程序设计"], "夏雪", "计算机与人工智能学院");
-            const c8 = add("毛泽东思想和中国特色社会主义理论体系概论", ["毛概", "毛中特", "毛泽东", "理论体系"], "康立芳", "马克思主义学院");
-            const c9 = add("形势与政策II", ["形策", "形势与政策"], "谢尔艾力.库尔班", "马克思主义学院");
-            const c10 = add("大学物理", ["大物", "物理"], "余泉茂", "软件与物联网工程学院");
-            const c11 = add("习近平新时代中国特色社会主义思想概论", ["习概", "新思想", "习近平"], "徐腊梅", "马克思主义学院");
-            const c12 = add("数字逻辑与数字系统", ["数逻", "数字逻辑", "数电"], "包晗秋", "计算机与人工智能学院");
+            const c1 = add('程序设计实践', ['easyx', '程设', '程设实践', '程序设计实践'], '焦贤沛', '计算机与人工智能学院');
+            const c2 = add('写作与沟通I', ['语文', '写作', '沟通', '写沟', '写作与沟通'], '王柳芳', '社会与人文学院');
+            const c3 = add('中国近现代史纲要', ['近代史', '近现代史', '史纲', '纲要'], '吴通福', '马克思主义学院');
+            const c4 = add('高等数学II', ['高数II', '高数2', '高等数学二', '高数二', '高数', '高等数学'], '俞丽兰', '信息管理与数学学院');
+            const c5 = add('大学英语II', ['大英', '英语', '大英II', '英语II', '大学英语'], '史希平', '外国语学院');
+            const c6 = add('体育2', ['体育', '体育二'], '彭永善', '体育学院');
+            const c7 = add('面向对象程序设计(双语)', ['java', 'oop', '面向对象', '面向对象程序设计'], '夏雪', '计算机与人工智能学院');
+            const c8 = add('毛泽东思想和中国特色社会主义理论体系概论', ['毛概', '毛中特', '毛泽东', '理论体系'], '康立芳', '马克思主义学院');
+            const c9 = add('形势与政策II', ['形策', '形势与政策'], '谢尔艾力.库尔班', '马克思主义学院');
+            const c10 = add('大学物理', ['大物', '物理'], '余泉茂', '软件与物联网工程学院');
+            const c11 = add('习近平新时代中国特色社会主义思想概论', ['习概', '新思想', '习近平'], '徐腊梅', '马克思主义学院');
+            const c12 = add('数字逻辑与数字系统', ['数逻', '数字逻辑', '数电'], '包晗秋', '计算机与人工智能学院');
 
-            c1.addSession("全周", "3-12", "图文楼M103", 1);
-            c2.addSession("全周", "1-34", "3310", 1);
-            c3.addSession("全周", "2-345", "3203", 1);
-            c4.addSession("全周", "1-101112", "3303", 1);
-            c4.addSession("全周", "3-345", "3304", 2);
-            c5.addSession("全周", "4-34", "3207", 1);
-            c6.addSession("全周", "5-34", "乒乓球场T021", 1);
-            c7.addSession("单周", "1-678", "3407", 1);
-            c7.addSession("双周", "1-678", "图文楼M106", 1);
-            c8.addSession("全周", "2-678", "3303", 1);
-            c9.addSession("全周", "3-67", "3403", 1);
-            c10.addSession("全周", "4-678", "二教2103", 1);
-            c11.addSession("全周", "5-678", "3202", 1);
-            c12.addSession("全周", "2-1011", "3313", 1);
-            c12.addSession("双周", "4-1011", "图文楼M102", 2);
+            c1.addSession('全周', '3-12', '图文楼M103', 1);
+            c2.addSession('全周', '1-34', '3310', 1);
+            c3.addSession('全周', '2-345', '3203', 1);
+            c4.addSession('全周', '1-101112', '3303', 1);
+            c4.addSession('全周', '3-345', '3304', 2);
+            c5.addSession('全周', '4-34', '3207', 1);
+            c6.addSession('全周', '5-34', '乒乓球场T021', 1);
+            c7.addSession('单周', '1-678', '3407', 1);
+            c7.addSession('双周', '1-678', '图文楼M106', 1);
+            c8.addSession('全周', '2-678', '3303', 1);
+            c9.addSession('全周', '3-67', '3403', 1);
+            c10.addSession('全周', '4-678', '二教2103', 1);
+            c11.addSession('全周', '5-678', '3202', 1);
+            c12.addSession('全周', '2-1011', '3313', 1);
+            c12.addSession('双周', '4-1011', '图文楼M102', 2);
         }
 
         findCourse(rawText) {
             const lower = rawText.toLowerCase();
-            for (let course of this.courses.values()) {
-                if (course.aliases.some(alias => alias.toLowerCase().includes(lower) || lower.includes(alias.toLowerCase()))) {
+            for (const course of this.courses.values()) {
+                if (course.aliases.some(alias => lower.includes(alias.toLowerCase()))) {
                     return course;
                 }
             }
@@ -183,10 +183,10 @@
             const cleaned = Utils.removeWeekInfo(inputText);
             const ordinal = Utils.extractOrdinal(cleaned);
             const course = this.repo.findCourse(cleaned);
-            if (!course) return { error: `未匹配到课程，请检查课程别名` };
+            if (!course) return { error: '未匹配到课程，请检查课程别名' };
 
             const week = Utils.getCurrentWeek();
-            if (week === -1) return { error: `当前日期早于开学日` };
+            if (week === -1) return { error: '当前日期早于开学日' };
             if (week > CONFIG.MAX_WEEK) return { error: `当前第${week}周超出课表范围` };
 
             const sessions = course.weeklySessions.get(week);
@@ -210,8 +210,8 @@
                 teacherCollege: course.teacherCollege,
                 courseName: course.formalName,
                 studentCount: CONFIG.STUDENT_COUNT,
-                feedback: feedback,
-                week: week
+                feedback,
+                week
             };
         }
     }
@@ -221,8 +221,8 @@
         fillField(questionTitle, value) {
             if (!value) return false;
             const questions = document.querySelectorAll('.question');
-            for (let q of questions) {
-                const titleSpan = q.querySelector('.question-title .form-auto-ellipsis');
+            for (const q of questions) {
+                let titleSpan = q.querySelector('.question-title .form-auto-ellipsis');
                 let titleText = titleSpan ? titleSpan.textContent.trim() : '';
                 if (!titleText) {
                     const titleDiv = q.querySelector('.question-title');
@@ -248,7 +248,7 @@
 
         fillAll(fieldMap) {
             let success = true;
-            for (let [title, val] of fieldMap) {
+            for (const [title, val] of fieldMap) {
                 if (!this.fillField(title, val)) success = false;
             }
             return success;
@@ -262,6 +262,7 @@
             this.panel = null;
             this.btn = null;
             this.originalBtnText = '✨ 填写并复制';
+            this.randomBtnText = '🎲 随机选择课程';
             this.timeoutId = null;
             this.isDragging = false;
             this.startX = 0;
@@ -310,19 +311,29 @@
             this._bindEvents();
             this._createMiniButton();
 
-            // 确保初始 normalStyle.height 为准确的像素值
             requestAnimationFrame(() => {
                 const rect = this.panel.getBoundingClientRect();
                 this.normalStyle.height = rect.height;
             });
         }
 
+        _updateButtonText() {
+            const descInput = document.getElementById('courseDescInput');
+            if (descInput && descInput.value.trim() === '') {
+                this.btn.innerHTML = this.randomBtnText;
+            } else {
+                this.btn.innerHTML = this.originalBtnText;
+            }
+        }
+
         _closeIconSVG() {
             return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6" cy="6" r="6" fill="#FF5F57" stroke="#E0443E" stroke-width="0.5"/></svg>`;
         }
+
         _minimizeIconSVG() {
             return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6" cy="6" r="6" fill="#FFBD2E" stroke="#DFA123" stroke-width="0.5"/></svg>`;
         }
+
         _maximizeIconSVG() {
             return `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="6" cy="6" r="6" fill="#28C840" stroke="#1BAC2C" stroke-width="0.5"/></svg>`;
         }
@@ -559,7 +570,6 @@
                 this.panel.style.left = 'auto';
                 this.panel.style.bottom = 'auto';
             }
-            // 强制重排后获取准确的尺寸
             this.panel.offsetHeight;
             const rect = this.panel.getBoundingClientRect();
             this.normalStyle.left = rect.left;
@@ -710,15 +720,13 @@
             if (this.isAnimating) return;
             const rect = this.panel.getBoundingClientRect();
 
-            // 修复首次最大化高度无动画的问题：如果面板 height 未显式设置或为 'auto'，先强制转为像素值
             const computedHeight = getComputedStyle(this.panel).height;
             if (!this.panel.style.height || computedHeight === 'auto') {
                 this.panel.style.height = rect.height + 'px';
-                this.panel.offsetHeight; // 强制重绘
+                this.panel.offsetHeight;
             }
 
             if (!this.isMaximized) {
-                // 保存正常状态的尺寸和位置
                 this.normalStyle.width = rect.width;
                 this.normalStyle.height = rect.height;
                 this.normalStyle.left = rect.left;
@@ -750,7 +758,6 @@
             setTimeout(() => {
                 this.panel.style.transition = '';
                 if (!this.isMaximized) {
-                    // 还原后不重置为 auto，而是保持固定高度，并更新 normalStyle
                     const newRect = this.panel.getBoundingClientRect();
                     this.normalStyle.width = newRect.width;
                     this.normalStyle.height = newRect.height;
@@ -803,28 +810,33 @@
         }
 
         _bindEvents() {
+            const descInput = document.getElementById('courseDescInput');
+            const fbInput = document.getElementById('feedbackInput');
+
+            // 实时更新按钮文本
+            const updateBtnText = () => this._updateButtonText();
+            descInput.addEventListener('input', updateBtnText);
+            // 初始调用一次
+            updateBtnText();
+
+            // Ctrl+Enter 快捷键
+            const handleCtrlEnter = (e) => {
+                if (e.ctrlKey && e.key === 'Enter') {
+                    e.preventDefault();
+                    this.btn.click();
+                }
+            };
+            descInput.addEventListener('keydown', handleCtrlEnter);
+            fbInput.addEventListener('keydown', handleCtrlEnter);
+
             this.btn.addEventListener('click', async () => {
-                const descInput = document.getElementById('courseDescInput');
-                const fbInput = document.getElementById('feedbackInput');
-                var desc = descInput.value.trim();
-
+                const desc = descInput.value.trim();
                 if (!desc) {
-                    const preset = [
-                        "程设",
-                        "写作",
-                        "近代史",
-                        "高数",
-                        "大英",
-                        "Java",
-                        "毛概",
-                        "形式与政策",
-                        "大物",
-                        "习概",
-                        "数电",
-                    ]
+                    descInput.value = CONFIG.RANDOM_PRESETS[Math.floor(Math.random() * CONFIG.RANDOM_PRESETS.length)];
 
-                    desc = preset[Math.floor(Math.random() * preset.length)];
-                    descInput.value = desc;
+                    // 手动触发一次 input 事件以更新按钮文本（实际上输入值变化会自动触发，但为了保险）
+                    descInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    return;
                 }
 
                 const fb = fbInput.value;
@@ -843,7 +855,7 @@
             this.btn.innerHTML = `<span style="display:flex;align-items:center;justify-content:center;gap:6px;">✅ 已复制到剪贴板</span>`;
             this.timeoutId = setTimeout(() => {
                 this.btn.classList.remove('success');
-                this.btn.innerHTML = this.originalBtnText;
+                this._updateButtonText(); // 恢复原始按钮文本
                 this.timeoutId = null;
             }, 1800);
         }
@@ -887,29 +899,38 @@
             }
 
             const fields = [
-                ["教师所在学院", data.teacherCollege],
-                ["教师", data.teacher],
-                ["课程", data.courseName],
-                ["校区", data.campus],
-                ["上课时间", data.time],
-                ["课表教室", data.classroom],
-                ["应到人数", data.studentCount],
-                ["实到人数", data.studentCount],
-                ["反馈内容", data.feedback],
-                ["周次", data.week.toString()],
-                ["信息员", data.officer],
-                ["信息员所在学院", data.college]
+                ['教师所在学院', data.teacherCollege],
+                ['教师', data.teacher],
+                ['课程', data.courseName],
+                ['校区', data.campus],
+                ['上课时间', data.time],
+                ['课表教室', data.classroom],
+                ['应到人数', data.studentCount],
+                ['实到人数', data.studentCount],
+                ['反馈内容', data.feedback],
+                ['周次', data.week.toString()],
+                ['信息员', data.officer],
+                ['信息员所在学院', data.college]
             ];
 
             this.filler.fillAll(fields);
 
-            const fullText = `学院：${data.college}\n信息员：${data.officer}\n校区：${data.campus}\n课表教室 ：${data.classroom}\n时间：${data.time}\n教师：${data.teacher}\n教师所在学院：${data.teacherCollege}\n课程：${data.courseName}\n人数：(${data.studentCount}/${data.studentCount})\n反馈内容：${data.feedback}`;
+            const fullText = `学院：${data.college}
+信息员：${data.officer}
+校区：${data.campus}
+课表教室 ：${data.classroom}
+时间：${data.time}
+教师：${data.teacher}
+教师所在学院：${data.teacherCollege}
+课程：${data.courseName}
+人数：(${data.studentCount}/${data.studentCount})
+反馈内容：${data.feedback}`;
 
             const copied = await Utils.copyToClipboard(fullText);
             if (copied) {
                 this.panel.showSuccessOnButton();
             } else {
-                this.panel.showErrorToast("复制失败，请手动复制");
+                this.panel.showErrorToast('复制失败，请手动复制');
             }
         }
 
