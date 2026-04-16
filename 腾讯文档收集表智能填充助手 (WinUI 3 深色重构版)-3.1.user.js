@@ -841,7 +841,7 @@
                 this.panel.style.visibility = 'hidden';
                 this.panel.style.transition = '';
                 this.panel.style.transform = '';
-                this.panel.style.opacity = '';
+                this.panel.style.opacity = '0';
                 this.miniButton.classList.add('visible');
                 this.isAnimating = false;
             }, ANIM_DURATION);
